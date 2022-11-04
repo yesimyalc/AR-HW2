@@ -6,6 +6,8 @@ TagManager:
   tags:
   - Clone
   - text
+  - FirstDot
+  - ScaledDot
   layers:
   - Default
   - TransparentFX

@@ -4,6 +4,7 @@ using UnityEngine;
 using System;
 using System.Globalization;
 using Accord.Math.Decompositions;
+using Accord.Statistics;
 
 public class SecondDots : MonoBehaviour
 {
@@ -18,6 +19,7 @@ public class SecondDots : MonoBehaviour
     private int dotCount1;
     private int dotCount2;
     private UnityEngine.Vector4[] set1;
+    private UnityEngine.Vector4[] set11;
     private UnityEngine.Vector4[] set2;
 
     bool alignmentDone=false;
@@ -74,6 +76,27 @@ public class SecondDots : MonoBehaviour
                     set1[start-1]=new UnityEngine.Vector4(float.Parse(strlist[0], CultureInfo.InvariantCulture.NumberFormat), float.Parse(strlist[1], CultureInfo.InvariantCulture.NumberFormat), float.Parse(strlist[2], CultureInfo.InvariantCulture.NumberFormat), 1);
                 else
                     set1[start-1]=new UnityEngine.Vector4(float.Parse(strlist[0]), float.Parse(strlist[1]), float.Parse(strlist[2]), 1);
+
+                start++;
+            }
+        }
+
+        start=0;
+
+        foreach (string line in System.IO.File.ReadLines("file11.txt"))
+        {
+            if(start==0)
+            {
+                dotCount1=Int32.Parse(line);
+                start++;
+                set11=new UnityEngine.Vector4[dotCount2];
+            }
+            else{
+                String[] strlist = line.Split(spearator, 3, StringSplitOptions.RemoveEmptyEntries);
+                if(strlist[0].Contains(".") || strlist[1].Contains(".") || strlist[2].Contains("."))
+                    set11[start-1]=new UnityEngine.Vector4(float.Parse(strlist[0], CultureInfo.InvariantCulture.NumberFormat), float.Parse(strlist[1], CultureInfo.InvariantCulture.NumberFormat), float.Parse(strlist[2], CultureInfo.InvariantCulture.NumberFormat), 1);
+                else
+                    set11[start-1]=new UnityEngine.Vector4(float.Parse(strlist[0]), float.Parse(strlist[1]), float.Parse(strlist[2]), 1);
 
                 start++;
             }
@@ -163,6 +186,9 @@ public class SecondDots : MonoBehaviour
         double[,] set2Pairs=new double[3,3];
         double[,] set1Pairs=new double[3,3];
 
+        if(alignmentDone==true)
+            return;
+
         //Randomly choose 3 points from file2
         //Choose 3 corresponding points from file 1 assuming they have exact transforms
         for(int i=0; i<dotCount2; ++i)
@@ -246,6 +272,99 @@ public class SecondDots : MonoBehaviour
         }
     }
 
+    public void alignWithScaling()
+    {
+        int inlierTreshold=dotCount2/2;
+        double[,] set2Pairs=new double[3,3];
+        double[,] set1Pairs=new double[3,3];
+
+        if(alignmentDone==true)
+            return;
+
+        //Randomly choose 3 points from file2
+        //Choose 3 corresponding points from file 11 assuming they have exact transforms
+        for(int i=0; i<dotCount2; ++i)
+        {
+            for(int j=0; j<dotCount2; ++j)
+            {
+                if(j==i)
+                    j++;
+                if(j>=dotCount2)
+                    break;
+
+                for(int k=0; k<dotCount2; ++k)
+                {
+                    if(k==i || k==j)
+                        k++;
+                    if(k==i || k==j)
+                        k++;
+                    if(k>=dotCount2)
+                        break;
+
+                    for(int m=0; m<dotCount1; ++m)
+                    {
+                        for(int l=0; l<dotCount1; ++l)
+                        {   
+                            if(l==m)
+                                l++;
+                            if(l>=dotCount1)
+                                break;
+
+                            for(int z=0; z<dotCount1; ++z)
+                            {
+                                if(z==m || z==l)
+                                    z++;
+                                if(z==m || z==l)
+                                    z++;
+                                if(z>=dotCount1)
+                                    break;
+
+                                set2Pairs[0,0]=(double)set2[i].x;
+                                set2Pairs[0,1]=(double)set2[i].y;
+                                set2Pairs[0,2]=(double)set2[i].z;
+                                set2Pairs[1,0]=(double)set2[j].x;
+                                set2Pairs[1,1]=(double)set2[j].y;
+                                set2Pairs[1,2]=(double)set2[j].z;
+                                set2Pairs[2,0]=(double)set2[k].x;
+                                set2Pairs[2,1]=(double)set2[k].y;
+                                set2Pairs[2,2]=(double)set2[k].z;
+
+                                set1Pairs[0,0]=(double)set11[m].x;
+                                set1Pairs[0,1]=(double)set11[m].y;
+                                set1Pairs[0,2]=(double)set11[m].z;
+                                set1Pairs[1,0]=(double)set11[l].x;
+                                set1Pairs[1,1]=(double)set11[l].y;
+                                set1Pairs[1,2]=(double)set11[l].z;
+                                set1Pairs[2,0]=(double)set11[z].x;
+                                set1Pairs[2,1]=(double)set11[z].y;
+                                set1Pairs[2,2]=(double)set11[z].z;
+                                
+                                //Calculate their transformation
+                                UnityEngine.Matrix4x4 estimatedTransform=calcTransformScaled(set2Pairs, set1Pairs);
+
+                                //For the calculated transformation, count the inliers
+                                int inlierCount=findInliersCountScaled(estimatedTransform);
+
+                                //If the inlier count is bigger than treshold, transform is found. If not try again for another point match
+                                if(inlierCount>=inlierTreshold)
+                                {
+                                    doAlignment(estimatedTransform);
+                                    return;
+                                }
+
+                            }
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+    }
+
     private UnityEngine.Matrix4x4 calcTransform(double[,] secondSet, double[,] firstSet)
     {
        //Pnew=T*Pold
@@ -284,6 +403,54 @@ public class SecondDots : MonoBehaviour
        return T;
     }
 
+    private UnityEngine.Matrix4x4 calcTransformScaled(double[,] secondSet, double[,] firstSet)
+    {
+       //Pnew=T*Pold
+       //Find T which is a 4x4 matrix given 3 pairs of points by solving the system of linear equations
+
+       //translate points to their centroids
+       double[,] centroid1=MeanAlongXD(secondSet);
+       double[,] centroid2=MeanAlongXD(firstSet);
+       double[,] AA=SubstractInequalMatrixD(secondSet, centroid1);
+       double[,] BB=SubstractInequalMatrixD(firstSet, centroid2);
+
+       //rotation matrix
+       double[,] H=MultiplyMatrixD(TransposeD(AA), BB);
+       SingularValueDecomposition svd= new SingularValueDecomposition(H, true, true);
+       double[,] R=MultiplyMatrixD(svd.RightSingularVectors, TransposeD(svd.LeftSingularVectors));
+
+       //Special Reflection Case
+       if(DeterminantD(R)<0)
+       {
+            svd.RightSingularVectors[0, 2]*=-1;
+            svd.RightSingularVectors[1, 2]*=-1;
+            svd.RightSingularVectors[2, 2]*=-1;
+            R=MultiplyMatrixD(svd.RightSingularVectors, TransposeD(svd.LeftSingularVectors));
+       }
+
+       //Scaling
+       double c;
+       double[] varP=new double[3];
+       varP=Measures.Variance(secondSet);
+       for(int i=0; i<3; i++)
+          varP[i]=(varP[i]*2)/3;
+       c=(1/SumD(varP))*SumD(svd.Diagonal);
+       c=c/3;
+
+       //translation
+       double[,] t=SubstractMatrixD(centroid2, MultiplyMatrixD(MultiplyD(c,R), centroid1));
+       R=MultiplyD(c,R);
+       
+       //homogeneous transformation
+       UnityEngine.Matrix4x4 T=UnityEngine.Matrix4x4.identity;
+       T.SetRow(0, new UnityEngine.Vector4((float)R[0,0], (float)R[0,1], (float)R[0,2], (float)t[0,0]));
+       T.SetRow(1, new UnityEngine.Vector4((float)R[1,0], (float)R[1,1], (float)R[1,2], (float)t[1,0]));
+       T.SetRow(2, new UnityEngine.Vector4((float)R[2,0], (float)R[2,1], (float)R[2,2], (float)t[2,0]));
+       T.SetRow(3, new UnityEngine.Vector4(0,0,0,1));
+
+       return T;
+    }
+
     private int findInliersCount(UnityEngine.Matrix4x4 transformVector)
     {
         int foundInlierCount=0;
@@ -296,6 +463,28 @@ public class SecondDots : MonoBehaviour
             for(int j=0; j<dotCount1; ++j)
             {
                 if(distanceOfVectors(newCoordinates[i], set1[j])<=distanceTreshold)
+                {
+                    foundInlierCount++;
+                    break;
+                }
+            }
+        }
+
+        return foundInlierCount;
+    }
+
+     private int findInliersCountScaled(UnityEngine.Matrix4x4 transformVector)
+    {
+        int foundInlierCount=0;
+        float distanceTreshold=0.1f;
+
+        for(int i=0; i<dotCount2; ++i)
+        {
+            newCoordinates[i]=transformVector*set2[i];
+            
+            for(int j=0; j<dotCount1; ++j)
+            {
+                if(distanceOfVectors(newCoordinates[i], set11[j])<=distanceTreshold)
                 {
                     foundInlierCount++;
                     break;
@@ -389,7 +578,7 @@ public class SecondDots : MonoBehaviour
         return result;
     }
 
-    public double[,] TransposeD(double[,] matrix)
+    private double[,] TransposeD(double[,] matrix)
     {
         int w = matrix.GetLength(0);
         int h = matrix.GetLength(1);
@@ -402,6 +591,36 @@ public class SecondDots : MonoBehaviour
             {
                 result[j, i] = matrix[i, j];
             }
+        }
+
+        return result;
+    }
+
+    private double[,] MultiplyD(double x, double[,] matrix)
+    {
+        int w = matrix.GetLength(0);
+        int h = matrix.GetLength(1);
+
+        double[,] result = new double[h, w];
+        for (int i = 0; i < w; i++)
+        {
+            for (int j = 0; j < h; j++)
+            {
+                result[i, j] = x*matrix[i, j];
+            }
+        }
+
+        return result;
+    }
+
+    private double SumD(double[] matrix)
+    {
+        int w = matrix.GetLength(0);
+
+        double result=0;
+        for (int i = 0; i < w; i++)
+        {
+            result+= matrix[i];
         }
 
         return result;
